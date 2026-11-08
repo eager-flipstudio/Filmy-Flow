@@ -591,7 +591,7 @@
                     <a href="#screens"><i class="ph ph-device-mobile"></i> Screenshots</a>
                     <a href="#features"><i class="ph ph-star"></i> Features</a>
                     <a href="{{ telegram_url }}" target="_blank"><i class="ph ph-telegram-logo"></i> Telegram</a>
-                    <a href="{{ apk_url }}" download="{{ app_name.replace(' ', '') }}.apk" class="track-download" data-source="dropdown">
+                    <a href="/download" download="{{ app_name.replace(' ', '') }}.apk" class="track-download" data-source="dropdown">
                         <i class="ph-bold ph-download-simple"></i> Download APK
                     </a>
                 </div>
@@ -606,7 +606,7 @@
                     BUILDING THE WORLD'S LEADING <br>
                     CINEMATIC EXPERIENCE.
                 </div>
-                <a href="{{ apk_url }}" download="{{ app_name.replace(' ', '') }}.apk" class="pixel-link track-download" data-source="banner">DOWNLOAD NOW ></a>
+                <a href="/download" download="{{ app_name.replace(' ', '') }}.apk" class="pixel-link track-download" data-source="banner">DOWNLOAD NOW ></a>
             </div>
 
             <section class="hero">
@@ -627,7 +627,7 @@
                 </div>
 
                 <div class="action-buttons">
-                    <a href="{{ apk_url }}" class="download-btn track-download" data-source="main_button">
+                    <a href="/download" class="download-btn track-download" data-source="main_button">
                         <i class="ph-fill ph-android-logo"></i>
                         Download {{ app_name }}
                     </a>
@@ -705,77 +705,110 @@
 
     <script>
         const FIREBASE_DB = "{{ firebase_db_url }}";
+        const COUNTRY_CACHE = 'ff_country_code';
 
-        function getDeviceInfo() {
-            const ua = navigator.userAgent;
-            let deviceType = "Desktop";
-            let os = "Unknown";
-            let browser = "Unknown";
-
-            if (/Mobi|Android/i.test(ua)) deviceType = "Mobile";
-            else if (/Tablet|iPad/i.test(ua)) deviceType = "Tablet";
-
-            if (/Windows/i.test(ua)) os = "Windows";
-            else if (/Android/i.test(ua)) os = "Android";
-            else if (/iPhone|iPad|iPod/i.test(ua)) os = "iOS";
-            else if (/Mac/i.test(ua)) os = "macOS";
-            else if (/Linux/i.test(ua)) os = "Linux";
-
-            if (/Edg/i.test(ua)) browser = "Edge";
-            else if (/Chrome/i.test(ua)) browser = "Chrome";
-            else if (/Firefox/i.test(ua)) browser = "Firefox";
-            else if (/Safari/i.test(ua)) browser = "Safari";
-
-            return { deviceType, os, browser, ua };
+        function timeoutSignal(ms) {
+            const controller = new AbortController();
+            setTimeout(() => controller.abort(), ms);
+            return controller.signal;
         }
 
-        const deviceInfo = getDeviceInfo();
+        const countryPromise = (async () => {
+            const cached = sessionStorage.getItem(COUNTRY_CACHE);
+            if (cached) return cached === 'null' ? null : cached;
 
-        function fbPush(path, data) {
-            if (!FIREBASE_DB || FIREBASE_DB.includes('your-project')) return;
-            fetch(`${FIREBASE_DB}/${path}.json`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            }).catch((err) => console.warn('Firebase REST failed:', err));
+            const detectors = [
+                async () => {
+                    const res = await fetch('https://ipwho.is/', { signal: timeoutSignal(3000) });
+                    const data = await res.json();
+                    return data.success ? data.country_code : null;
+                },
+                async () => {
+                    const res = await fetch('https://ipapi.co/json/', { signal: timeoutSignal(3000) });
+                    const data = await res.json();
+                    return data.country_code || data.country || null;
+                }
+            ];
+
+            for (const detect of detectors) {
+                try {
+                    const code = await detect();
+                    if (code && /^[A-Za-z]{2}$/.test(code)) {
+                        const upper = code.toUpperCase();
+                        sessionStorage.setItem(COUNTRY_CACHE, upper);
+                        return upper;
+                    }
+                } catch (err) {
+                    console.warn('Geo detect failed:', err);
+                }
+            }
+
+            sessionStorage.setItem(COUNTRY_CACHE, 'null');
+            return null;
+        })();
+
+        async function incrementCounter(path) {
+            const url = `${FIREBASE_DB}/${path}.json`;
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    const getRes = await fetch(url, {
+                        headers: { 'X-Firebase-ETag': 'true' }
+                    });
+                    const value = await getRes.json();
+                    const current = typeof value === 'number' ? value : 0;
+                    const etag = getRes.headers.get('ETag');
+
+                    const headers = { 'Content-Type': 'application/json' };
+                    if (etag) headers['if-match'] = etag;
+
+                    const putRes = await fetch(url, {
+                        method: 'PUT',
+                        headers,
+                        body: JSON.stringify(current + 1)
+                    });
+
+                    if (putRes.ok) return current + 1;
+                } catch (err) {
+                    console.warn('Counter increment failed:', err);
+                }
+            }
+            return null;
         }
 
-        fbPush('visits', {
-            timestamp: Date.now(),
-            datetime: new Date().toISOString(),
-            device: deviceInfo.deviceType,
-            os: deviceInfo.os,
-            browser: deviceInfo.browser,
-            referrer: document.referrer || 'direct',
-            userAgent: deviceInfo.ua,
-            screen: window.screen.width + 'x' + window.screen.height,
-            page: window.location.href
-        });
+        async function trackVisit() {
+            if (sessionStorage.getItem('visit_counted')) return;
+            const country = await countryPromise;
+
+            const tasks = [incrementCounter('web/visits')];
+            if (country) {
+                tasks.push(incrementCounter(`web/countries/${country}/visits`));
+            }
+            await Promise.all(tasks);
+            sessionStorage.setItem('visit_counted', '1');
+        }
+
+        async function trackDownload() {
+            const country = await countryPromise;
+
+            const tasks = [incrementCounter('web/downloads')];
+            if (country) {
+                tasks.push(incrementCounter(`web/countries/${country}/downloads`));
+            }
+            await Promise.all(tasks);
+        }
+
+        trackVisit().catch(() => {});
 
         document.querySelectorAll('.track-download').forEach((btn) => {
-            btn.addEventListener('click', () => {
-                fbPush('downloads', {
-                    timestamp: Date.now(),
-                    datetime: new Date().toISOString(),
-                    device: deviceInfo.deviceType,
-                    os: deviceInfo.os,
-                    browser: deviceInfo.browser,
-                    source: btn.getAttribute('data-source') || 'unknown',
-                    version: "{{ app_version }}",
-                    userAgent: deviceInfo.ua,
-                    screen: window.screen.width + 'x' + window.screen.height
-                });
-            });
-        });
+            btn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const target = btn.getAttribute('href') || '/download';
 
-        document.querySelectorAll('a[href*="t.me"]').forEach((link) => {
-            link.addEventListener('click', () => {
-                fbPush('telegram_clicks', {
-                    timestamp: Date.now(),
-                    datetime: new Date().toISOString(),
-                    device: deviceInfo.deviceType,
-                    os: deviceInfo.os
-                });
+                const tracking = trackDownload().catch(() => {});
+                const timeout = new Promise((r) => setTimeout(r, 1500));
+
+                await Promise.race([tracking, timeout]);
+                window.location.href = target;
             });
         });
 
