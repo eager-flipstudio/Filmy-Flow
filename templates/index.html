@@ -615,7 +615,8 @@
                 <div class="pills-container">
                     <div class="pill">
                         <i class="ph-fill ph-download-simple"></i> 
-                        <span class="stat-value" data-target="10" data-suffix="K+">0</span> Downloads
+                        <!-- Yahan ID add ki gayi hai dynamic update ke liye -->
+                        <span class="stat-value" id="dynamicDownloadStat" data-target="10" data-suffix="K+">0</span> Downloads
                     </div>
                     <div class="pill">
                         <i class="ph-fill ph-star"></i> 
@@ -790,13 +791,45 @@
         async function trackDownload() {
             const country = await countryPromise;
 
-            const tasks = [incrementCounter('web/downloads')];
+            const tasks = [incrementCounter('web/downloads'), incrementCounter('stats/downloads/total')];
             if (country) {
                 tasks.push(incrementCounter(`web/countries/${country}/downloads`));
+                tasks.push(incrementCounter(`stats/downloads/byCountry/${country}`));
             }
             await Promise.all(tasks);
         }
 
+        // --- NAYA CODE: Real Stats Fetch from Firebase ---
+        async function fetchRealStats() {
+            try {
+                const res = await fetch(`${FIREBASE_DB}/stats/downloads/total.json`);
+                const total = await res.json();
+                
+                if (typeof total === 'number' && total > 0) {
+                    const el = document.getElementById('dynamicDownloadStat');
+                    let targetVal = total;
+                    let suffix = '';
+                    
+                    // Agar 1000 se zyada hai toh 24K+ format me dikhao
+                    if (total >= 1000) {
+                        targetVal = (total / 1000).toFixed(1).replace('.0', ''); // 24025 => 24K+
+                        suffix = 'K+';
+                    }
+                    
+                    el.setAttribute('data-target', targetVal);
+                    el.setAttribute('data-suffix', suffix);
+                    
+                    // Animation function ko re-trigger karne ke liye custom event
+                    if (el.classList.contains('animated-done')) {
+                        el.innerText = targetVal + suffix;
+                    }
+                }
+            } catch (err) {
+                console.warn('Failed to fetch real total downloads', err);
+            }
+        }
+
+        fetchRealStats();
         trackVisit().catch(() => {});
 
         document.querySelectorAll('.track-download').forEach((btn) => {
@@ -903,6 +936,7 @@
                         requestAnimationFrame(updateNumber);
                     } else {
                         stat.innerText = (isDecimal ? target.toFixed(1) : target) + suffix;
+                        stat.classList.add('animated-done');
                     }
                 };
                 updateNumber();
