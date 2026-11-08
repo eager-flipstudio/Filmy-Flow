@@ -2,7 +2,7 @@ import os
 
 class Config:
     APP_NAME = "Filmy Flow"
-    APP_VERSION = "Eclipse V2.0"
+    APP_VERSION = "Inception"
 
     APK_DOWNLOAD_URL = "https://dl.4d2.sh/HYi7MWuxhf6u.apk"
     TELEGRAM_URL = "https://t.me/FilmyFlowOfficial"
@@ -17,5 +17,5 @@ class Config:
 
     FIREBASE_DB_URL = os.environ.get(
         'FIREBASE_DB_URL',
-        'https://your-project-default-rtdb.firebaseio.com'
+        'https://filmyflowfusion-default-rtdb.firebaseio.com'
     )
