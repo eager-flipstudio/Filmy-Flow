@@ -4,7 +4,7 @@ class Config:
     APP_NAME = "Filmy Flow"
     APP_VERSION = "Inception"
 
-    APK_DOWNLOAD_URL = "https://dl.4d2.sh/HYi7MWuxhf6u.apk"
+    APK_DOWNLOAD_URL = "https://dl.4d2.sh/NRCSiUintIrU.apk"
     TELEGRAM_URL = "https://t.me/FilmyFlowOfficial"
 
     SCREENSHOTS = [
